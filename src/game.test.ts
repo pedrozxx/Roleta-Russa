@@ -83,6 +83,28 @@ describe('regras', () => {
     expect(pull(g)).toMatchObject({ kind: 'shot', victim: { name: 'Duda' }, next: { name: 'Ana' } });
   });
 
+  it('em cada arma o tiro pode sair em qualquer puxada, da 1ª à 6ª, com a mesma chance', () => {
+    // 60 mil armas: cada uma é puxada pelo dono até disparar, e anotamos em qual puxada saiu
+    const N = 60000;
+    const counts = Array(CHAMBERS).fill(0);
+    for (let i = 0; i < N; i++) {
+      const g = newGame(make('Ana', 'Bia'), 'elimination');
+      const ana = g.players[0];
+      g.turn = 0;
+      let puxadas = 0;
+      for (;;) {
+        g.turn = g.alive.indexOf(ana); // sempre a Ana puxando a arma dela
+        puxadas++;
+        if (pull(g).kind === 'shot') break;
+      }
+      counts[puxadas - 1]++;
+    }
+    for (const c of counts) {
+      expect(c / N).toBeGreaterThan(1 / 6 - 0.01);
+      expect(c / N).toBeLessThan(1 / 6 + 0.01);
+    }
+  });
+
   it('a bala cai em todas as câmaras com frequência parecida', () => {
     const counts = Array(CHAMBERS).fill(0);
     for (let i = 0; i < 3000; i++) {

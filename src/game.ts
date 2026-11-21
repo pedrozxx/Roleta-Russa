@@ -32,9 +32,16 @@ export interface GameState {
 
 export type Rng = () => number;
 
+/** Sorteio do sistema operacional (crypto), mais forte que Math.random. Número entre 0 e 1. */
+export const secureRandom: Rng = () => {
+  const c = globalThis.crypto;
+  if (!c?.getRandomValues) return Math.random();
+  return c.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
+};
+
 const pick = (rng: Rng, n: number) => Math.floor(rng() * n) % n;
 
-export function newGame(players: Player[], mode: Mode, rng: Rng = Math.random): GameState {
+export function newGame(players: Player[], mode: Mode, rng: Rng = secureRandom): GameState {
   if (players.length < 2) throw new Error('Precisa de pelo menos 2 jogadores');
   if (players.length > MAX_PLAYERS) throw new Error(`No máximo ${MAX_PLAYERS} jogadores`);
   const guns: Record<string, Gun> = {};
