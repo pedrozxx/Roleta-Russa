@@ -27,3 +27,4 @@ Jogo de festa num celular só, passando de mão em mão. Serve pra diversão num
 
 ## Fora do escopo
 Multiplayer, contas, ranking online, publicação em loja.
+- Animações em todas as telas (fundo com brasas, transição entre telas, entrada em cascata, toque com onda, clarão e fumaça no tiro, tensão vermelha quando a chance fica alta, confete ou cápsulas no resultado, placar contando). Nenhuma animação bloqueia o toque além do que já bloqueava. Quem liga "reduzir movimento" no celular perde só os loops.

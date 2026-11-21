@@ -3,6 +3,7 @@ import { current, MAX_PLAYERS, newGame, pull, remaining, type GameState, type Mo
 import { store } from './storage';
 import * as sfx from './audio';
 import { cylinderFront, finishFor, revolverSide } from './revolver';
+import { ask, countUp, dismiss, go, installEmbers, installRipple, popWord, rain, replay, stagger, swapText } from './fx';
 
 const app = document.getElementById('app')!;
 
@@ -17,17 +18,24 @@ let mode: Mode = store.mode;
 let game: GameState | null = null;
 let rotation: Record<string, number> = {};
 let busy = false;
+let justAdded = -1;
+let lastVictim: string | null = null;
+
+/** Título com as letras caindo uma a uma. */
+const letters = (word: string, offset: number) =>
+  [...word].map((ch, i) => `<span class="ltr" style="--l:${i + offset}">${ch}</span>`).join('');
 
 // ---------- Tela inicial ----------
 
-function renderSetup(focus = false) {
+function renderSetup(opts: { focus?: boolean; enter?: boolean } = {}) {
+  const { focus = false, enter = true } = opts;
   const canStart = names.length >= 2;
   const full = names.length >= MAX_PLAYERS;
   app.innerHTML = `
   <main class="screen setup">
     <header class="brand">
       <div class="brand-gun">${revolverSide()}</div>
-      <h1>Roleta<br/>Russa</h1>
+      <h1>${letters('Roleta', 0)}<br/>${letters('Russa', 6)}</h1>
     </header>
 
     <form id="add" class="add" autocomplete="off">
@@ -38,26 +46,40 @@ function renderSetup(focus = false) {
     <ul class="players">
       ${names
         .map(
-          (n, i) => `<li><i class="dot" style="background:${finishFor(i).mid}" title="${finishFor(i).name}"></i><span>${esc(n)}</span><button class="x" data-remove="${i}" aria-label="Remover ${esc(n)}">×</button></li>`,
+          (n, i) =>
+            `<li class="${i === justAdded ? 'pop' : ''}"><i class="dot" style="background:${finishFor(i).mid}" title="${finishFor(i).name}"></i><span>${esc(n)}</span><button class="x" data-remove="${i}" aria-label="Remover ${esc(n)}">×</button></li>`,
         )
         .join('')}
     </ul>
-    ${names.length === 0 ? '<p class="hint">Adicione pelo menos duas pessoas.</p>' : ''}
-    ${names.length === 1 ? '<p class="hint">Falta mais uma pessoa.</p>' : ''}
-    ${full ? `<p class="hint">Máximo de ${MAX_PLAYERS} jogadores, um revólver pra cada.</p>` : ''}
+    <p class="hint">${
+      names.length === 0
+        ? 'Adicione pelo menos duas pessoas.'
+        : names.length === 1
+          ? 'Falta mais uma pessoa.'
+          : full
+            ? `Máximo de ${MAX_PLAYERS} jogadores, um revólver pra cada.`
+            : `${names.length} na mesa. Cabem mais ${MAX_PLAYERS - names.length}.`
+    }</p>
 
     <div class="modes" role="radiogroup" aria-label="Modo de jogo">
-      <button role="radio" aria-checked="${mode === 'elimination'}" data-mode="elimination">
+      <button type="button" role="radio" aria-checked="${mode === 'elimination'}" data-mode="elimination">
         <strong>Até sobrar um</strong><small>Quem leva o tiro sai. O último de pé vence.</small>
       </button>
-      <button role="radio" aria-checked="${mode === 'single'}" data-mode="single">
+      <button type="button" role="radio" aria-checked="${mode === 'single'}" data-mode="single">
         <strong>Um tiro decide</strong><small>Acaba no primeiro tiro. Quem levou, perdeu.</small>
       </button>
     </div>
 
-    <button id="start" class="btn primary" ${canStart ? '' : 'disabled'}>Começar</button>
+    <button id="start" class="btn primary shine ${canStart && justAdded === 1 ? 'ready' : ''}" ${canStart ? '' : 'disabled'}>Começar</button>
     <button id="board" class="btn ghost">Placar</button>
   </main>`;
+  justAdded = -1;
+
+  const screen = app.querySelector('.screen')!;
+  if (enter) {
+    stagger(screen);
+    screen.classList.add('entering');
+  }
 
   const input = app.querySelector<HTMLInputElement>('#name')!;
   if (focus && !full) input.focus();
@@ -65,23 +87,30 @@ function renderSetup(focus = false) {
   app.querySelector('#add')!.addEventListener('submit', (e) => {
     e.preventDefault();
     const n = input.value.trim().replace(/\s+/g, ' ').slice(0, MAX_NAME);
-    if (!n || names.length >= MAX_PLAYERS) return;
+    if (!n || names.length >= MAX_PLAYERS) {
+      replay(input, 'shake');
+      return;
+    }
     if (names.some((x) => x.toLowerCase() === n.toLowerCase())) {
       input.select();
-      input.classList.add('shake');
-      setTimeout(() => input.classList.remove('shake'), 400);
+      replay(input, 'shake');
       return;
     }
     names.push(n);
+    justAdded = names.length - 1;
     store.setNames(names);
-    renderSetup(true);
+    renderSetup({ focus: true, enter: false });
   });
 
   app.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach((b) =>
     b.addEventListener('click', () => {
-      names.splice(Number(b.dataset.remove), 1);
-      store.setNames(names);
-      renderSetup();
+      const li = b.closest('li')!;
+      li.classList.add('gone');
+      setTimeout(() => {
+        names.splice(Number(b.dataset.remove), 1);
+        store.setNames(names);
+        renderSetup({ enter: false });
+      }, 220);
     }),
   );
 
@@ -89,15 +118,16 @@ function renderSetup(focus = false) {
     b.addEventListener('click', () => {
       mode = b.dataset.mode as Mode;
       store.setMode(mode);
-      renderSetup();
+      app.querySelectorAll('[data-mode]').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+      replay(b, 'picked');
     }),
   );
 
   app.querySelector('#start')!.addEventListener('click', () => {
     sfx.unlock();
-    startGame();
+    go(startGame);
   });
-  app.querySelector('#board')!.addEventListener('click', () => renderBoard());
+  app.querySelector('#board')!.addEventListener('click', () => go(renderBoard));
 }
 
 // ---------- Jogo ----------
@@ -108,8 +138,9 @@ function startGame() {
   const players: Player[] = names.map((name, i) => ({ id: String(i), name }));
   game = newGame(players, mode);
   rotation = {};
+  lastVictim = null;
   for (const p of players) rotation[p.id] = 0;
-  renderGame();
+  renderGame(true);
   spinAll();
 }
 
@@ -123,7 +154,7 @@ function gunMarkup(p: Player) {
     </div>`;
 }
 
-function renderGame() {
+function renderGame(enter = false) {
   const g = game!;
   app.innerHTML = `
   <main class="screen game">
@@ -133,7 +164,7 @@ function renderGame() {
     </div>
 
     <section class="turn" aria-live="polite">
-      <p class="label" id="label">Girando os tambores...</p>
+      <p class="label" id="label">${enter ? '<span class="dots">Girando os tambores</span>' : 'Vez de'}</p>
       <h2 id="who">${esc(current(g).name)}</h2>
       <p class="odds" id="odds"></p>
     </section>
@@ -145,24 +176,30 @@ function renderGame() {
     <ul class="rack" style="--n:${g.players.length}">
       ${g.players
         .map(
-          (p) => `<li data-id="${p.id}">
+          (p) => `<li data-id="${p.id}" class="${p.id === lastVictim ? 'knocked' : ''}">
             <div class="mini">${cylinderFront(finishOf(p), 'front mini-cyl')}</div>
             <span class="rack-name">${esc(p.name)}</span>
-            <span class="rack-odds"></span>
+            <span class="rack-odds">1 em ${remaining(g, p)}</span>
           </li>`,
         )
         .join('')}
     </ul>
   </main>
+  <div id="vignette" class="vignette"></div>
   <div id="flash" class="flash"></div>`;
+  lastVictim = null;
+
+  const screen = app.querySelector('.screen')!;
+  stagger(screen, enter ? 60 : 30);
+  stagger(app.querySelector('.rack'), 45);
 
   for (const p of g.players) setCylinder(p, false);
-  updateTurnInfo('Vez de');
+  if (!enter) updateTurnInfo('Vez de');
   app.querySelector('#fire')!.addEventListener('click', onFire);
-  app.querySelector('#quit')!.addEventListener('click', () => {
-    if (confirm('Sair da partida? Ela não vai contar no placar.')) {
+  app.querySelector('#quit')!.addEventListener('click', async () => {
+    if (await ask('Sair da partida? Ela não vai contar no placar.', 'Sair')) {
       game = null;
-      renderSetup();
+      go(() => renderSetup());
     }
   });
 }
@@ -184,17 +221,24 @@ function setCylinder(p: Player, animate: boolean, ms = 250, onStage = current(ga
 
 function updateTurnInfo(label: string) {
   const g = game!;
-  app.querySelector('#label')!.textContent = label;
-  app.querySelector('#who')!.textContent = current(g).name;
+  swapText(app.querySelector('#label'), label, 'fade-swap');
+  swapText(app.querySelector('#who'), current(g).name);
   const r = remaining(g);
-  app.querySelector('#odds')!.textContent =
-    r === 1 ? 'Última câmara da sua arma. A bala está aqui.' : `Chance de tiro na sua arma: 1 em ${r}`;
+  swapText(
+    app.querySelector('#odds'),
+    r === 1 ? 'Última câmara da sua arma. A bala está aqui.' : `Chance de tiro na sua arma: 1 em ${r}`,
+    'bump',
+  );
+  // tensão: a tela pulsa em vermelho quando a chance fica alta
+  const v = app.querySelector('#vignette')!;
+  v.classList.toggle('hot', r <= 2);
+  v.classList.toggle('hotter', r === 1);
   for (const p of g.players) {
     const li = app.querySelector(`.rack li[data-id="${p.id}"]`)!;
     const out = g.eliminated.includes(p);
     li.classList.toggle('out', out);
     li.classList.toggle('now', !out && current(g) === p);
-    li.querySelector('.rack-odds')!.textContent = out ? 'fora' : `1 em ${remaining(g, p)}`;
+    swapText(li.querySelector('.rack-odds'), out ? 'fora' : `1 em ${remaining(g, p)}`, 'bump');
   }
 }
 
@@ -211,7 +255,9 @@ function spinAll() {
   setTimeout(() => {
     busy = false;
     updateTurnInfo('Vez de');
-    app.querySelector<HTMLButtonElement>('#fire')!.disabled = false;
+    const fire = app.querySelector<HTMLButtonElement>('#fire')!;
+    fire.disabled = false;
+    replay(fire, 'armed');
   }, SPIN_MS);
 }
 
@@ -228,31 +274,45 @@ function onFire() {
   const fireBtn = app.querySelector<HTMLButtonElement>('#fire')!;
   fireBtn.disabled = true;
   const gun = app.querySelector('#stage .gun')!;
-  gun.classList.add('firing');
-  setTimeout(() => gun.classList.remove('firing'), 220);
+  gun.classList.remove('enter');
+  gun.classList.add('cocking');
 
-  const out = pull(g);
+  // o cão arma, depois cai
+  setTimeout(() => {
+    gun.classList.remove('cocking');
+    gun.classList.add('firing');
+    setTimeout(() => gun.classList.remove('firing'), 220);
 
-  if (out.kind === 'empty') {
-    sfx.click();
-    sfx.vibrate(30);
-    rotation[shooter.id] += 60;
-    setCylinder(shooter, true, 250, true);
-    app.querySelector('#label')!.textContent = 'Click. Vazia.';
-    setTimeout(() => {
-      showGunOf(out.next);
-      updateTurnInfo('Passa o celular pra');
-      busy = false;
-      fireBtn.disabled = false;
-    }, 800);
-    return;
-  }
+    const out = pull(g);
 
-  sfx.bang();
-  sfx.vibrate([250, 80, 400]);
-  app.querySelector('#flash')!.classList.add('on');
-  app.querySelector('.game')!.classList.add('recoil');
-  setTimeout(() => showShot(out.victim, out.next), 650);
+    if (out.kind === 'empty') {
+      sfx.click();
+      sfx.vibrate(30);
+      rotation[shooter.id] += 60;
+      setCylinder(shooter, true, 250, true);
+      replay(gun.querySelector('.cyl-wrap'), 'jolt');
+      popWord(gun, 'CLICK');
+      swapText(app.querySelector('#label'), 'Vazia. Ufa.', 'fade-swap');
+      swapText(app.querySelector(`.rack li[data-id="${shooter.id}"] .rack-odds`), `1 em ${remaining(g, shooter)}`, 'bump');
+      setTimeout(() => gun.classList.add('leave'), 520);
+      setTimeout(() => {
+        showGunOf(out.next);
+        updateTurnInfo('Passa o celular pra');
+        busy = false;
+        fireBtn.disabled = false;
+        replay(fireBtn, 'armed');
+      }, 760);
+      return;
+    }
+
+    sfx.bang();
+    sfx.vibrate([250, 80, 400]);
+    gun.classList.add('shot');
+    app.querySelector('#flash')!.classList.add('on');
+    app.querySelector('.game')!.classList.add('recoil');
+    lastVictim = out.victim.id;
+    setTimeout(() => showShot(out.victim, out.next), 650);
+  }, 140);
 }
 
 function showShot(victim: Player, next: Player | null) {
@@ -261,20 +321,30 @@ function showShot(victim: Player, next: Player | null) {
   overlay.className = 'overlay';
   const more = !g.over;
   overlay.innerHTML = `
-    <div class="card">
-      <p class="bang">BANG!</p>
+    <div class="card slam">
+      <svg class="hole" viewBox="0 0 100 100" aria-hidden="true">
+        <g stroke="#5a1a12" stroke-width="2" stroke-linecap="round">
+          <line x1="50" y1="50" x2="10" y2="30"/><line x1="50" y1="50" x2="92" y2="20"/>
+          <line x1="50" y1="50" x2="85" y2="88"/><line x1="50" y1="50" x2="18" y2="80"/>
+          <line x1="50" y1="50" x2="50" y2="4"/>
+        </g>
+        <circle cx="50" cy="50" r="11" fill="#0a0707" stroke="#3a2c27" stroke-width="3"/>
+      </svg>
+      <p class="bang">${[...'BANG!'].map((c, i) => `<span style="--l:${i}">${c}</span>`).join('')}</p>
       <h2>${esc(victim.name)}</h2>
       <p>${g.mode === 'single' ? 'levou o tiro e perdeu.' : 'levou o tiro e está fora.'}</p>
       ${more ? `<p class="small">Sobraram ${g.alive.length}. As outras armas continuam como estavam.</p>` : ''}
-      <button id="go" class="btn primary">${more ? `Próxima: ${esc(next!.name)}` : 'Ver resultado'}</button>
+      <button id="go" class="btn primary shine">${more ? `Próxima: ${esc(next!.name)}` : 'Ver resultado'}</button>
     </div>`;
   document.body.appendChild(overlay);
-  overlay.querySelector('#go')!.addEventListener('click', () => {
-    overlay.remove();
+  overlay.querySelector('#go')!.addEventListener('click', async () => {
+    await dismiss(overlay);
     if (more) {
       renderGame();
       busy = false;
-      app.querySelector<HTMLButtonElement>('#fire')!.disabled = false;
+      const fire = app.querySelector<HTMLButtonElement>('#fire')!;
+      fire.disabled = false;
+      replay(fire, 'armed');
     } else {
       finish();
     }
@@ -288,8 +358,8 @@ function finish() {
     shot: g.eliminated.map((p) => p.name),
     winner: g.winner?.name ?? null,
   });
-  renderResult(g);
   game = null;
+  go(() => renderResult(g));
 }
 
 // ---------- Resultado ----------
@@ -297,8 +367,8 @@ function finish() {
 function renderResult(g: GameState) {
   const headline =
     g.mode === 'single'
-      ? `<p class="label">Perdeu</p><h2 class="loser">${esc(g.loser!.name)}</h2>`
-      : `<p class="label">Último de pé</p><h2 class="winner">${esc(g.winner!.name)}</h2>
+      ? `<p class="label">Perdeu</p><h2 class="loser big-name">${esc(g.loser!.name)}</h2>`
+      : `<p class="label">Último de pé</p><h2 class="winner big-name">${esc(g.winner!.name)}</h2>
          <p class="small">Primeiro a cair: <strong>${esc(g.loser!.name)}</strong></p>`;
   const order =
     g.mode === 'elimination'
@@ -308,16 +378,20 @@ function renderResult(g: GameState) {
   <main class="screen result">
     <section class="turn">${headline}</section>
     ${order ? `<p class="label">Ordem dos tiros</p>${order}` : ''}
-    <button id="again" class="btn primary">Jogar de novo</button>
+    <button id="again" class="btn primary shine">Jogar de novo</button>
     <button id="edit" class="btn ghost">Trocar jogadores</button>
     <button id="board" class="btn ghost">Placar</button>
   </main>`;
+  stagger(app.querySelector('.screen'), 80);
+  stagger(app.querySelector('.order'), 90);
+  setTimeout(() => rain(g.mode === 'single' ? 'shells' : 'confetti'), 250);
+
   app.querySelector('#again')!.addEventListener('click', () => {
     sfx.unlock();
-    startGame();
+    go(startGame);
   });
-  app.querySelector('#edit')!.addEventListener('click', () => renderSetup());
-  app.querySelector('#board')!.addEventListener('click', () => renderBoard());
+  app.querySelector('#edit')!.addEventListener('click', () => go(() => renderSetup()));
+  app.querySelector('#board')!.addEventListener('click', () => go(renderBoard));
 }
 
 // ---------- Placar ----------
@@ -335,23 +409,37 @@ function renderBoard() {
         ? `<table>
             <thead><tr><th>Nome</th><th title="Vezes que levou o tiro">Tiros</th><th title="Vezes que foi o último de pé">Vitórias</th><th>Jogos</th></tr></thead>
             <tbody>${rows
-              .map((r) => `<tr><td>${esc(r.name)}</td><td>${r.shots}</td><td>${r.wins}</td><td>${r.games}</td></tr>`)
+              .map(
+                (r) =>
+                  `<tr><td>${esc(r.name)}</td><td><span data-count="${r.shots}">${r.shots}</span></td><td><span data-count="${r.wins}">${r.wins}</span></td><td><span data-count="${r.games}">${r.games}</span></td></tr>`,
+              )
               .join('')}</tbody>
           </table>
           <p class="small">Vitórias só contam no modo "Até sobrar um".</p>
           <button id="reset" class="btn ghost danger">Zerar placar</button>`
-        : '<p class="hint">Nenhuma partida terminada ainda.</p>'
+        : '<p class="hint empty">Nenhuma partida terminada ainda.</p>'
     }
   </main>`;
-  app.querySelector('#back')!.addEventListener('click', () => renderSetup());
-  app.querySelector('#reset')?.addEventListener('click', () => {
-    if (confirm('Zerar o placar de todo mundo?')) {
-      store.resetStats();
-      renderBoard();
+  stagger(app.querySelector('.screen'));
+  stagger(app.querySelector('tbody'), 70);
+  countUp(app);
+  app.querySelector('#back')!.addEventListener('click', () => go(() => renderSetup()));
+  app.querySelector('#reset')?.addEventListener('click', async () => {
+    if (await ask('Zerar o placar de todo mundo?', 'Zerar')) {
+      app.querySelectorAll('tbody tr').forEach((tr, i) => {
+        (tr as HTMLElement).style.setProperty('--i', String(i));
+        tr.classList.add('wipe');
+      });
+      setTimeout(() => {
+        store.resetStats();
+        renderBoard();
+      }, 450);
     }
   });
 }
 
+installEmbers();
+installRipple();
 renderSetup();
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {

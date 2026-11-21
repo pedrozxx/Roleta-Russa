@@ -27,7 +27,7 @@ let uid = 0;
 export function revolverSide(f: Finish = FINISHES[0]) {
   const id = `g${uid++}`;
   return `
-<svg class="side" viewBox="0 0 420 230" aria-hidden="true">
+<svg class="side" viewBox="-50 0 470 230" overflow="visible" aria-hidden="true">
   <defs>
     <linearGradient id="${id}s" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="${f.hi}"/><stop offset=".55" stop-color="${f.mid}"/><stop offset="1" stop-color="${f.lo}"/>
@@ -49,6 +49,13 @@ export function revolverSide(f: Finish = FINISHES[0]) {
   <g class="trigger"><path d="M266 122 C262 136 266 146 276 150 C272 140 274 130 278 122 Z" fill="${f.lo}"/></g>
   <path d="M300 106 L328 100 C344 130 370 176 380 214 C362 224 334 224 318 216 C314 180 304 140 286 116 Z" fill="url(#${id}w)"/>
   <circle cx="338" cy="168" r="5" fill="${f.hi}"/>
+  <g class="muzzle">
+    <polygon points="14,75 -30,52 -6,70 -46,76 -6,82 -30,100" fill="#ffd36b"/>
+    <polygon points="14,75 -14,64 -2,73 -22,76 -2,79 -14,88" fill="#fff6d8"/>
+  </g>
+  <g class="smoke">
+    <circle cx="6" cy="72" r="9"/><circle cx="-2" cy="66" r="12"/><circle cx="8" cy="60" r="10"/>
+  </g>
 </svg>`;
 }
 
