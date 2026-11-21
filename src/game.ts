@@ -1,10 +1,17 @@
 export type Mode = 'elimination' | 'single';
 
 export const CHAMBERS = 6;
+export const MAX_PLAYERS = 6;
 
 export interface Player {
   id: string;
   name: string;
+}
+
+/** Cada jogador tem o próprio revólver: 1 bala, gira uma vez no começo e nunca mais. */
+export interface Gun {
+  bullet: number;
+  chamber: number;
 }
 
 export type Outcome =
@@ -16,8 +23,7 @@ export interface GameState {
   players: Player[];
   alive: Player[];
   eliminated: Player[];
-  bullet: number;
-  chamber: number;
+  guns: Record<string, Gun>;
   turn: number;
   over: boolean;
   loser: Player | null;
@@ -30,13 +36,15 @@ const pick = (rng: Rng, n: number) => Math.floor(rng() * n) % n;
 
 export function newGame(players: Player[], mode: Mode, rng: Rng = Math.random): GameState {
   if (players.length < 2) throw new Error('Precisa de pelo menos 2 jogadores');
+  if (players.length > MAX_PLAYERS) throw new Error(`No máximo ${MAX_PLAYERS} jogadores`);
+  const guns: Record<string, Gun> = {};
+  for (const p of players) guns[p.id] = { bullet: pick(rng, CHAMBERS), chamber: 0 };
   return {
     mode,
     players: [...players],
     alive: [...players],
     eliminated: [],
-    bullet: pick(rng, CHAMBERS),
-    chamber: 0,
+    guns,
     turn: pick(rng, players.length),
     over: false,
     loser: null,
@@ -48,17 +56,18 @@ export function current(state: GameState): Player {
   return state.alive[state.turn];
 }
 
-/** Câmaras que ainda podem ter a bala nesta rodada. A chance do próximo tiro é 1 em N. */
-export function remaining(state: GameState): number {
-  return CHAMBERS - state.chamber;
+/** Câmaras que ainda podem ter a bala na arma desse jogador. A chance do próximo tiro dele é 1 em N. */
+export function remaining(state: GameState, player: Player = current(state)): number {
+  return CHAMBERS - state.guns[player.id].chamber;
 }
 
-export function pull(state: GameState, rng: Rng = Math.random): Outcome {
+export function pull(state: GameState): Outcome {
   if (state.over) throw new Error('Jogo já acabou');
   const shooter = current(state);
+  const gun = state.guns[shooter.id];
 
-  if (state.chamber !== state.bullet) {
-    state.chamber += 1;
+  if (gun.chamber !== gun.bullet) {
+    gun.chamber += 1;
     state.turn = (state.turn + 1) % state.alive.length;
     return { kind: 'empty', next: current(state) };
   }
@@ -79,9 +88,7 @@ export function pull(state: GameState, rng: Rng = Math.random): Outcome {
     return { kind: 'shot', victim: shooter, next: null, winner: state.winner };
   }
 
-  // Recarrega e gira de novo. A vez passa pra quem estava depois do eliminado.
+  // As armas dos outros continuam como estavam. A vez passa pra quem estava depois do eliminado.
   state.turn = state.turn % state.alive.length;
-  state.bullet = pick(rng, CHAMBERS);
-  state.chamber = 0;
   return { kind: 'shot', victim: shooter, next: current(state), winner: null };
 }

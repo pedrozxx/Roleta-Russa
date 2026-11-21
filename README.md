@@ -2,9 +2,9 @@
 
 Roleta russa de mentira pra jogar com os amigos num celular só, ou pra decidir quem paga a conta.
 
-Cadastra os nomes, escolhe o modo e passa o celular. O tambor tem 6 câmaras e 1 bala, gira uma vez e não gira de novo, então a chance de tiro sobe a cada clique vazio.
+Cadastra de 2 a 6 nomes, escolhe o modo e passa o celular. Cada jogador tem o próprio revólver, com 6 câmaras e 1 bala, que gira uma vez no começo e não gira de novo. A chance de tiro de cada um sobe a cada clique vazio na arma dele.
 
-- **Até sobrar um**: quem leva o tiro sai, o tambor recarrega e o jogo segue até ter um sobrevivente.
+- **Até sobrar um**: quem leva o tiro sai, as armas dos outros continuam como estavam e o jogo segue até ter um sobrevivente.
 - **Um tiro decide**: acaba no primeiro tiro.
 
 Tem som, vibração (só Android), placar salvo no celular e funciona offline depois de instalado.

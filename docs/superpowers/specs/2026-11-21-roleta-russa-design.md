@@ -16,7 +16,9 @@ Jogo de festa num celular só, passando de mão em mão. Serve pra diversão num
 
 ## Decisões minhas
 - Dois modos, porque eliminação e "decidir quem paga" puxam pra lados diferentes: "Até sobrar um" (padrão) e "Um tiro decide".
-- Na eliminação, a cada tiro o tambor é recarregado e girado de novo, e a vez passa pra quem estava depois do eliminado.
+- Uma arma por jogador (pedido do Pedro): cada um tem o próprio revólver, com 1 bala em 6, que gira uma vez no começo da partida e nunca mais. A chance de cada um sobe só com os cliques dele.
+- Na eliminação, ninguém recarrega: as armas de quem sobrou continuam como estavam. A vez passa pra quem estava depois do eliminado.
+- Máximo de 6 jogadores (pedido do Pedro). Cada um ganha um acabamento na ordem do cadastro: aço, dourado, preto, cobre, cromo, azulado.
 - Quem começa é sorteado.
 - Placar por nome (sem diferenciar maiúscula): tiros levados, vitórias (só no modo eliminação) e jogos. Fica salvo no próprio celular.
 - Sons gerados pelo navegador (Web Audio), sem arquivos de terceiros. Revólver desenhado em SVG.

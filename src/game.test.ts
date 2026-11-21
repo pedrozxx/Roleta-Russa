@@ -1,74 +1,94 @@
 import { describe, expect, it } from 'vitest';
-import { CHAMBERS, newGame, pull, remaining, current, type Player } from './game';
+import { CHAMBERS, MAX_PLAYERS, newGame, pull, remaining, current, type Player } from './game';
 
-const players: Player[] = ['Ana', 'Bia', 'Caio', 'Duda'].map((name, i) => ({ id: String(i), name }));
+const make = (...names: string[]): Player[] => names.map((name, i) => ({ id: String(i), name }));
+const players = make('Ana', 'Bia', 'Caio', 'Duda');
 
-/** rng que devolve os valores em sequência, pra controlar bala e quem começa */
+/** rng que devolve os valores em sequência. newGame sorteia a bala de cada jogador, na ordem, e depois quem começa. */
 const seq = (...vals: number[]) => {
   let i = 0;
   return () => vals[i++ % vals.length];
 };
-// valor que cai na posição k de n
 const at = (k: number, n: number) => (k + 0.5) / n;
+const setup = (bullets: number[], start: number, n = bullets.length) =>
+  seq(...bullets.map((b) => at(b, CHAMBERS)), at(start, n));
 
 describe('regras', () => {
-  it('exige pelo menos 2 jogadores', () => {
-    expect(() => newGame(players.slice(0, 1), 'single')).toThrow();
+  it('aceita de 2 a 6 jogadores', () => {
+    expect(() => newGame(make('Ana'), 'single')).toThrow();
+    expect(() => newGame(make('a', 'b', 'c', 'd', 'e', 'f', 'g'), 'single')).toThrow();
+    expect(() => newGame(make('a', 'b', 'c', 'd', 'e', 'f'), 'single')).not.toThrow();
+    expect(MAX_PLAYERS).toBe(6);
   });
 
-  it('sem girar de novo: o tiro sai em no máximo 6 puxadas e a chance aumenta', () => {
-    const g = newGame(players, 'single', seq(at(5, CHAMBERS), at(0, 4)));
-    const odds: number[] = [];
+  it('cada jogador tem a própria arma com a própria bala', () => {
+    const g = newGame(players, 'single', setup([0, 1, 2, 5], 0));
+    expect(players.map((p) => g.guns[p.id].bullet)).toEqual([0, 1, 2, 5]);
+  });
+
+  it('a chance de cada um sobe só com os cliques dele', () => {
+    const g = newGame(make('Ana', 'Bia'), 'single', setup([5, 5], 0));
+    const [ana, bia] = g.players;
+    pull(g); // Ana
+    expect(remaining(g, ana)).toBe(5);
+    expect(remaining(g, bia)).toBe(6);
+    pull(g); // Bia
+    pull(g); // Ana
+    expect(remaining(g, ana)).toBe(4);
+    expect(remaining(g, bia)).toBe(5);
+  });
+
+  it('sem girar de novo: a arma de cada um dispara em no máximo 6 puxadas dele', () => {
+    const g = newGame(make('Ana', 'Bia'), 'single', setup([5, 5], 0));
+    let pulls = 0;
     let out;
     do {
-      odds.push(remaining(g));
       out = pull(g);
+      pulls++;
     } while (out.kind === 'empty');
-    expect(odds).toEqual([6, 5, 4, 3, 2, 1]);
-    expect(g.over).toBe(true);
+    expect(out).toMatchObject({ kind: 'shot', victim: { name: 'Ana' } });
+    expect(pulls).toBe(11); // Ana na 6ª puxada dela, Bia teve 5
   });
 
   it('a vez passa em ordem', () => {
-    const g = newGame(players, 'single', seq(at(3, CHAMBERS), at(2, 4)));
+    const g = newGame(players, 'single', setup([5, 0, 5, 5], 2));
     expect(current(g).name).toBe('Caio');
     expect(pull(g)).toMatchObject({ kind: 'empty', next: { name: 'Duda' } });
     expect(pull(g)).toMatchObject({ kind: 'empty', next: { name: 'Ana' } });
     expect(pull(g)).toMatchObject({ kind: 'empty', next: { name: 'Bia' } });
-    expect(pull(g)).toMatchObject({ kind: 'shot', victim: { name: 'Bia' } });
+    expect(pull(g)).toMatchObject({ kind: 'shot', victim: { name: 'Bia' }, next: null });
     expect(g.loser?.name).toBe('Bia');
-  });
-
-  it('um tiro decide: acaba no primeiro tiro', () => {
-    const g = newGame(players, 'single', seq(at(0, CHAMBERS), at(1, 4)));
-    const out = pull(g);
-    expect(out).toMatchObject({ kind: 'shot', victim: { name: 'Bia' }, next: null });
-    expect(g.over).toBe(true);
     expect(() => pull(g)).toThrow();
   });
 
-  it('eliminação: segue até sobrar um, recarregando a cada tiro', () => {
-    // começa com Ana, bala sempre na primeira câmara
-    const rng = seq(at(0, CHAMBERS), at(0, 4), at(0, CHAMBERS), at(0, CHAMBERS));
-    const g = newGame(players, 'elimination', rng);
-    expect(pull(g, rng)).toMatchObject({ kind: 'shot', victim: { name: 'Ana' }, next: { name: 'Bia' } });
-    expect(g.chamber).toBe(0);
-    expect(pull(g, rng)).toMatchObject({ kind: 'shot', victim: { name: 'Bia' }, next: { name: 'Caio' } });
-    const last = pull(g, rng);
-    expect(last).toMatchObject({ kind: 'shot', victim: { name: 'Caio' }, winner: { name: 'Duda' } });
-    expect(g.over).toBe(true);
+  it('eliminação: segue até sobrar um e ninguém recarrega', () => {
+    const g = newGame(players, 'elimination', setup([0, 1, 5, 2], 0));
+    expect(pull(g)).toMatchObject({ kind: 'shot', victim: { name: 'Ana' }, next: { name: 'Bia' } });
+    expect(pull(g)).toMatchObject({ kind: 'empty', next: { name: 'Caio' } }); // Bia: câmara 0 vazia
+    pull(g); // Caio vazio
+    pull(g); // Duda vazio
+    expect(pull(g)).toMatchObject({ kind: 'shot', victim: { name: 'Bia' }, next: { name: 'Caio' } });
+    expect(remaining(g, g.players[2])).toBe(5); // Caio manteve o clique que já tinha dado
+    pull(g); // Caio vazio
+    pull(g); // Duda vazio
+    pull(g); // Caio vazio
+    const last = pull(g); // Duda: câmara 2, bala
+    expect(last).toMatchObject({ kind: 'shot', victim: { name: 'Duda' }, winner: { name: 'Caio' } });
     expect(g.loser?.name).toBe('Ana');
-    expect(g.winner?.name).toBe('Duda');
+    expect(g.eliminated.map((p) => p.name)).toEqual(['Ana', 'Bia', 'Duda']);
   });
 
   it('eliminação: quando o último da lista cai, a vez volta pro primeiro', () => {
-    const rng = seq(at(0, CHAMBERS), at(3, 4), at(0, CHAMBERS));
-    const g = newGame(players, 'elimination', rng);
-    expect(pull(g, rng)).toMatchObject({ kind: 'shot', victim: { name: 'Duda' }, next: { name: 'Ana' } });
+    const g = newGame(players, 'elimination', setup([5, 5, 5, 0], 3));
+    expect(pull(g)).toMatchObject({ kind: 'shot', victim: { name: 'Duda' }, next: { name: 'Ana' } });
   });
 
   it('a bala cai em todas as câmaras com frequência parecida', () => {
     const counts = Array(CHAMBERS).fill(0);
-    for (let i = 0; i < 6000; i++) counts[newGame(players, 'single').bullet]++;
-    for (const c of counts) expect(c).toBeGreaterThan(800);
+    for (let i = 0; i < 3000; i++) {
+      const g = newGame(players, 'single');
+      for (const p of players) counts[g.guns[p.id].bullet]++;
+    }
+    for (const c of counts) expect(c).toBeGreaterThan(1700);
   });
 });

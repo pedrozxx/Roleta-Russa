@@ -1,8 +1,8 @@
 import './style.css';
-import { current, newGame, pull, remaining, type GameState, type Mode, type Player } from './game';
+import { current, MAX_PLAYERS, newGame, pull, remaining, type GameState, type Mode, type Player } from './game';
 import { store } from './storage';
 import * as sfx from './audio';
-import { cylinderFront, revolverSide } from './revolver';
+import { cylinderFront, finishFor, revolverSide } from './revolver';
 
 const app = document.getElementById('app')!;
 
@@ -15,34 +15,36 @@ const MAX_NAME = 20;
 let names: string[] = [...store.names];
 let mode: Mode = store.mode;
 let game: GameState | null = null;
-let rotation = 0;
+let rotation: Record<string, number> = {};
 let busy = false;
 
 // ---------- Tela inicial ----------
 
 function renderSetup(focus = false) {
   const canStart = names.length >= 2;
+  const full = names.length >= MAX_PLAYERS;
   app.innerHTML = `
   <main class="screen setup">
     <header class="brand">
-      <div class="brand-gun">${revolverSide}</div>
+      <div class="brand-gun">${revolverSide()}</div>
       <h1>Roleta<br/>Russa</h1>
     </header>
 
     <form id="add" class="add" autocomplete="off">
-      <input id="name" name="name" maxlength="${MAX_NAME}" placeholder="Nome do jogador" enterkeyhint="done" />
-      <button type="submit" class="btn small">Adicionar</button>
+      <input id="name" name="name" maxlength="${MAX_NAME}" placeholder="${full ? 'Mesa cheia' : 'Nome do jogador'}" enterkeyhint="done" ${full ? 'disabled' : ''} />
+      <button type="submit" class="btn small" ${full ? 'disabled' : ''}>Adicionar</button>
     </form>
 
     <ul class="players">
       ${names
         .map(
-          (n, i) => `<li><span>${esc(n)}</span><button class="x" data-remove="${i}" aria-label="Remover ${esc(n)}">×</button></li>`,
+          (n, i) => `<li><i class="dot" style="background:${finishFor(i).mid}" title="${finishFor(i).name}"></i><span>${esc(n)}</span><button class="x" data-remove="${i}" aria-label="Remover ${esc(n)}">×</button></li>`,
         )
         .join('')}
     </ul>
     ${names.length === 0 ? '<p class="hint">Adicione pelo menos duas pessoas.</p>' : ''}
     ${names.length === 1 ? '<p class="hint">Falta mais uma pessoa.</p>' : ''}
+    ${full ? `<p class="hint">Máximo de ${MAX_PLAYERS} jogadores, um revólver pra cada.</p>` : ''}
 
     <div class="modes" role="radiogroup" aria-label="Modo de jogo">
       <button role="radio" aria-checked="${mode === 'elimination'}" data-mode="elimination">
@@ -58,12 +60,12 @@ function renderSetup(focus = false) {
   </main>`;
 
   const input = app.querySelector<HTMLInputElement>('#name')!;
-  if (focus) input.focus();
+  if (focus && !full) input.focus();
 
   app.querySelector('#add')!.addEventListener('submit', (e) => {
     e.preventDefault();
     const n = input.value.trim().replace(/\s+/g, ' ').slice(0, MAX_NAME);
-    if (!n) return;
+    if (!n || names.length >= MAX_PLAYERS) return;
     if (names.some((x) => x.toLowerCase() === n.toLowerCase())) {
       input.select();
       input.classList.add('shake');
@@ -100,11 +102,25 @@ function renderSetup(focus = false) {
 
 // ---------- Jogo ----------
 
+const finishOf = (p: Player) => finishFor(Number(p.id));
+
 function startGame() {
   const players: Player[] = names.map((name, i) => ({ id: String(i), name }));
   game = newGame(players, mode);
+  rotation = {};
+  for (const p of players) rotation[p.id] = 0;
   renderGame();
-  spinCylinder();
+  spinAll();
+}
+
+function gunMarkup(p: Player) {
+  const f = finishOf(p);
+  return `
+    <div class="gun enter" style="--glow:${f.mid}">
+      ${revolverSide(f)}
+      <div class="cyl-wrap">${cylinderFront(f)}</div>
+      <p class="gun-name">Arma de ${esc(p.name)} · ${f.name}</p>
+    </div>`;
 }
 
 function renderGame() {
@@ -117,31 +133,31 @@ function renderGame() {
     </div>
 
     <section class="turn" aria-live="polite">
-      <p class="label" id="label">Girando o tambor...</p>
+      <p class="label" id="label">Girando os tambores...</p>
       <h2 id="who">${esc(current(g).name)}</h2>
       <p class="odds" id="odds"></p>
     </section>
 
-    <div class="gun">
-      ${revolverSide}
-      <div class="cyl-wrap">${cylinderFront()}</div>
-    </div>
+    <div id="stage">${gunMarkup(current(g))}</div>
 
     <button id="fire" class="btn trigger" disabled>Puxar o gatilho</button>
 
-    <ul class="roster">
+    <ul class="rack" style="--n:${g.players.length}">
       ${g.players
-        .map((p) => {
-          const out = g.eliminated.includes(p);
-          const now = !out && current(g) === p;
-          return `<li class="${out ? 'out' : ''} ${now ? 'now' : ''}">${esc(p.name)}</li>`;
-        })
+        .map(
+          (p) => `<li data-id="${p.id}">
+            <div class="mini">${cylinderFront(finishOf(p), 'front mini-cyl')}</div>
+            <span class="rack-name">${esc(p.name)}</span>
+            <span class="rack-odds"></span>
+          </li>`,
+        )
         .join('')}
     </ul>
   </main>
   <div id="flash" class="flash"></div>`;
 
-  setCylinder(false);
+  for (const p of g.players) setCylinder(p, false);
+  updateTurnInfo('Vez de');
   app.querySelector('#fire')!.addEventListener('click', onFire);
   app.querySelector('#quit')!.addEventListener('click', () => {
     if (confirm('Sair da partida? Ela não vai contar no placar.')) {
@@ -151,11 +167,19 @@ function renderGame() {
   });
 }
 
-function setCylinder(animate: boolean, ms = 250) {
-  const cyl = app.querySelector<SVGGElement>('#cyl');
-  if (!cyl) return;
-  cyl.style.transition = animate ? `transform ${ms}ms cubic-bezier(.15,.7,.2,1)` : 'none';
-  cyl.style.transform = `rotate(${rotation}deg)`;
+/** Gira o tambor grande (se for de quem está na vez) e o pequeno da fileira. */
+function setCylinder(p: Player, animate: boolean, ms = 250, onStage = current(game!) === p) {
+  const targets: SVGGElement[] = [];
+  const mini = app.querySelector<SVGGElement>(`.rack li[data-id="${p.id}"] .cyl`);
+  if (mini) targets.push(mini);
+  if (onStage) {
+    const big = app.querySelector<SVGGElement>('#stage .cyl');
+    if (big) targets.push(big);
+  }
+  for (const el of targets) {
+    el.style.transition = animate ? `transform ${ms}ms cubic-bezier(.15,.7,.2,1)` : 'none';
+    el.style.transform = `rotate(${rotation[p.id]}deg)`;
+  }
 }
 
 function updateTurnInfo(label: string) {
@@ -163,18 +187,26 @@ function updateTurnInfo(label: string) {
   app.querySelector('#label')!.textContent = label;
   app.querySelector('#who')!.textContent = current(g).name;
   const r = remaining(g);
-  app.querySelector('#odds')!.textContent = r === 1 ? 'Última câmara. A bala está aqui.' : `Chance de tiro: 1 em ${r}`;
-  app.querySelectorAll('.roster li').forEach((li, i) => {
-    const p = g.players[i];
-    li.classList.toggle('out', g.eliminated.includes(p));
-    li.classList.toggle('now', !g.eliminated.includes(p) && current(g) === p);
-  });
+  app.querySelector('#odds')!.textContent =
+    r === 1 ? 'Última câmara da sua arma. A bala está aqui.' : `Chance de tiro na sua arma: 1 em ${r}`;
+  for (const p of g.players) {
+    const li = app.querySelector(`.rack li[data-id="${p.id}"]`)!;
+    const out = g.eliminated.includes(p);
+    li.classList.toggle('out', out);
+    li.classList.toggle('now', !out && current(g) === p);
+    li.querySelector('.rack-odds')!.textContent = out ? 'fora' : `1 em ${remaining(g, p)}`;
+  }
 }
 
-function spinCylinder() {
+function spinAll() {
   busy = true;
-  rotation += 360 * 3 + 60 * Math.floor(Math.random() * 6);
-  requestAnimationFrame(() => setCylinder(true, SPIN_MS));
+  const g = game!;
+  for (const p of g.players) {
+    rotation[p.id] += 360 * 3 + 60 * Math.floor(Math.random() * 6);
+  }
+  requestAnimationFrame(() => {
+    for (const p of g.players) setCylinder(p, true, SPIN_MS);
+  });
   sfx.spin(SPIN_MS / 1000);
   setTimeout(() => {
     busy = false;
@@ -183,36 +215,43 @@ function spinCylinder() {
   }, SPIN_MS);
 }
 
+function showGunOf(p: Player) {
+  app.querySelector('#stage')!.innerHTML = gunMarkup(p);
+  setCylinder(p, false, 0, true);
+}
+
 function onFire() {
   if (busy || !game) return;
   busy = true;
+  const g = game;
+  const shooter = current(g);
   const fireBtn = app.querySelector<HTMLButtonElement>('#fire')!;
   fireBtn.disabled = true;
-  const gun = app.querySelector('.gun')!;
+  const gun = app.querySelector('#stage .gun')!;
   gun.classList.add('firing');
   setTimeout(() => gun.classList.remove('firing'), 220);
 
-  const out = pull(game);
+  const out = pull(g);
 
   if (out.kind === 'empty') {
     sfx.click();
     sfx.vibrate(30);
-    rotation += 60;
-    setCylinder(true);
-    updateTurnInfo('Click. Passa o celular pra');
+    rotation[shooter.id] += 60;
+    setCylinder(shooter, true, 250, true);
+    app.querySelector('#label')!.textContent = 'Click. Vazia.';
     setTimeout(() => {
+      showGunOf(out.next);
+      updateTurnInfo('Passa o celular pra');
       busy = false;
       fireBtn.disabled = false;
-    }, 700);
+    }, 800);
     return;
   }
 
   sfx.bang();
   sfx.vibrate([250, 80, 400]);
-  const flash = app.querySelector('#flash')!;
-  flash.classList.add('on');
+  app.querySelector('#flash')!.classList.add('on');
   app.querySelector('.game')!.classList.add('recoil');
-
   setTimeout(() => showShot(out.victim, out.next), 650);
 }
 
@@ -226,7 +265,7 @@ function showShot(victim: Player, next: Player | null) {
       <p class="bang">BANG!</p>
       <h2>${esc(victim.name)}</h2>
       <p>${g.mode === 'single' ? 'levou o tiro e perdeu.' : 'levou o tiro e está fora.'}</p>
-      ${more ? `<p class="small">Sobraram ${g.alive.length}. Recarregando o tambor.</p>` : ''}
+      ${more ? `<p class="small">Sobraram ${g.alive.length}. As outras armas continuam como estavam.</p>` : ''}
       <button id="go" class="btn primary">${more ? `Próxima: ${esc(next!.name)}` : 'Ver resultado'}</button>
     </div>`;
   document.body.appendChild(overlay);
@@ -234,7 +273,8 @@ function showShot(victim: Player, next: Player | null) {
     overlay.remove();
     if (more) {
       renderGame();
-      spinCylinder();
+      busy = false;
+      app.querySelector<HTMLButtonElement>('#fire')!.disabled = false;
     } else {
       finish();
     }
