@@ -60,19 +60,22 @@ export function revolverSide(f: Finish = FINISHES[0]) {
 }
 
 /** Tambor visto de frente. A câmara no topo é a que está alinhada com o cano. */
-export function cylinderFront(f: Finish = FINISHES[0], cls = 'front') {
+export function cylinderFront(f: Finish = FINISHES[0], cls = 'front', n: number = CHAMBERS) {
   const id = `c${uid++}`;
-  const holes = Array.from({ length: CHAMBERS }, (_, i) => {
-    const a = (i * 2 * Math.PI) / CHAMBERS - Math.PI / 2;
-    const x = 100 + 54 * Math.cos(a);
-    const y = 100 + 54 * Math.sin(a);
-    const fa = a + Math.PI / CHAMBERS;
+  const big = n <= 4; // com poucas câmaras, furos maiores
+  const ring = big ? 50 : 54;
+  const hr = big ? 26 : 21;
+  const holes = Array.from({ length: n }, (_, i) => {
+    const a = (i * 2 * Math.PI) / n - Math.PI / 2;
+    const x = 100 + ring * Math.cos(a);
+    const y = 100 + ring * Math.sin(a);
+    const fa = a + Math.PI / n;
     const fx = 100 + 84 * Math.cos(fa);
     const fy = 100 + 84 * Math.sin(fa);
     return `
       <circle cx="${fx.toFixed(1)}" cy="${fy.toFixed(1)}" r="13" fill="var(--bg)"/>
-      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="21" fill="${f.lo}"/>
-      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="16" fill="var(--hole)"/>`;
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${hr}" fill="${f.lo}"/>
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${hr - 5}" fill="var(--hole)"/>`;
   }).join('');
   return `
 <svg class="${cls}" viewBox="0 0 200 200" aria-hidden="true">

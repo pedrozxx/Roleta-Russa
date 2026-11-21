@@ -284,6 +284,10 @@ h1 { background: none; color: var(--text); }
 h1 .ltr:nth-child(n+8) { color: var(--gold); }
 .ltr {
   display: inline-block;
+  animation: glint 5s ease-in-out infinite;
+  animation-delay: calc(1.2s + var(--l) * 90ms);
+}
+h1.intro .ltr {
   animation: drop .6s cubic-bezier(.3,1.5,.5,1) both, glint 5s ease-in-out infinite;
   animation-delay: calc(150ms + var(--l) * 45ms), calc(1.2s + var(--l) * 90ms);
 }
@@ -441,9 +445,85 @@ tbody tr.wipe { animation: wipe .35s ease-in forwards; animation-delay: calc(var
 .empty { animation: rise .5s both, float 3s ease-in-out .5s infinite; }
 @keyframes float { 50% { transform: translateY(-6px); } }
 
+/* ---- botão de som ---- */
+.btn.icon { padding: 8px 10px; line-height: 0; color: var(--text); }
+.btn.icon[aria-pressed='false'] { color: var(--muted); }
+.sound-toggle .wave { animation: wave 1.6s ease-in-out infinite; }
+.sound-toggle .w2 { animation-delay: .2s; }
+@keyframes wave { 50% { opacity: .3; } }
+.picked { animation: picked .45s cubic-bezier(.3,1.6,.5,1); }
+.game .topbar { gap: 8px; }
+.game .mode-tag { flex: 1; text-align: center; font-size: 12px; }
+
+/* ---- ajustes na tela inicial ---- */
+.settings { display: flex; flex-direction: column; gap: 8px; }
+.setting {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; border-radius: var(--radius); background: var(--bg-2); border: 1px solid var(--line);
+}
+.setting > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.setting small { color: var(--muted); font-size: 12px; }
+.setting-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.seg { display: flex; gap: 4px; flex: none; }
+.seg button {
+  width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--card);
+  color: var(--text); font: inherit; font-weight: 700; cursor: pointer; position: relative; overflow: hidden;
+  transition: background .25s, border-color .25s, color .25s, transform .15s;
+}
+.seg button[aria-checked='true'] { background: var(--gold); border-color: var(--gold); color: #1d1513; }
+.switch {
+  width: 50px; height: 30px; border-radius: 999px; border: 0; padding: 3px; cursor: pointer; flex: none;
+  background: var(--line); transition: background .3s; position: relative;
+}
+.switch i {
+  display: block; width: 24px; height: 24px; border-radius: 50%; background: var(--text);
+  transition: transform .3s cubic-bezier(.3,1.6,.5,1); box-shadow: 0 2px 6px #0006;
+}
+.switch[aria-checked='true'] { background: var(--accent); }
+.switch[aria-checked='true'] i { transform: translateX(20px); }
+.switch:active i { width: 28px; }
+
+/* ---- prendas ---- */
+.dare {
+  margin: 6px 0 2px; padding: 12px; border-radius: 14px; background: #2e2219; border: 1px dashed var(--gold);
+  display: flex; flex-direction: column; gap: 4px; animation: rise .45s cubic-bezier(.2,.8,.2,1) .55s both;
+}
+.dare-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--gold); }
+.dare-text, .dare strong { font-size: 18px; min-height: 1.3em; }
+.dare-text.rolling { color: var(--muted); filter: blur(.6px); }
+.dare-text.landed { animation: landed .5s cubic-bezier(.3,1.8,.5,1); color: var(--gold); }
+@keyframes landed { from { transform: scale(1.4); } }
+.dare.big { animation: rise .5s cubic-bezier(.2,.8,.2,1) .6s both, dare-glow 2.4s ease-in-out 1.2s infinite; }
+@keyframes dare-glow { 50% { box-shadow: 0 0 24px #e0b06244; } }
+.dare-tag { color: var(--gold); font-size: 12px; margin-left: 6px; }
+.dare-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.dare-list li {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 8px 10px 14px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; position: relative; overflow: hidden;
+  transition: transform .2s, opacity .2s;
+}
+.dare-list li.pop { animation: pop .45s cubic-bezier(.3,1.6,.5,1); }
+.dare-list li.gone { animation: gone .22s ease-in forwards; }
+.dares-screen #restore { margin-top: auto; }
+
+/* ---- testar aparelho ---- */
+.test-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.test-grid .btn { font-size: 15px; padding: 14px 8px; }
+.result-line { margin: 0; text-align: center; font-weight: 700; color: var(--gold); min-height: 2.6em; }
+.test-cyl { width: 120px; margin: 0 auto; filter: drop-shadow(0 8px 16px #000a); }
+.caps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.caps li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); }
+.caps li > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.caps small { color: var(--muted); font-size: 13px; }
+.badge { flex: none; font-size: 12px; font-weight: 800; padding: 3px 8px; border-radius: 999px; margin-top: 1px; }
+.badge.yes { background: #1f3a24; color: #8be09a; }
+.badge.no { background: #3a1a17; color: var(--accent-2); }
+.caps li .badge { animation: pop .45s cubic-bezier(.3,1.6,.5,1) both; animation-delay: calc(.3s + var(--i, 0) * 50ms); }
+
 /* ---- quem pediu menos movimento no celular: corta os loops, mantém o essencial ---- */
 @media (prefers-reduced-motion: reduce) {
   body::before, #embers, .shine::after { animation: none !important; display: none; }
+  .sound-toggle .wave, .dare.big { animation-iteration-count: 1 !important; }
   .brand-gun .side, .brand-gun .hammer, h1, .gun .side, .gun::before, .btn.trigger:not(:disabled),
   .rack li.now, .vignette.hot, .winner, .loser, .empty { animation-iteration-count: 1 !important; }
   .rain, .recoil, .shake { animation: none !important; }

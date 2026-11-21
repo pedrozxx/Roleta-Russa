@@ -7,7 +7,9 @@ Cadastra de 2 a 6 nomes, escolhe o modo e passa o celular. Cada jogador tem o pr
 - **Até sobrar um**: quem leva o tiro sai, as armas dos outros continuam como estavam e o jogo segue até ter um sobrevivente.
 - **Um tiro decide**: acaba no primeiro tiro.
 
-Tem som, vibração (só Android), placar salvo no celular e funciona offline depois de instalado.
+Tem som (com botão pra desligar), vibração (só Android), tela que não apaga durante a partida, tambor de 3 a 6 câmaras, prendas sorteadas pra quem leva tiro, placar salvo no celular, e funciona offline depois de instalado.
+
+A tela "Testar aparelho" mostra se som, vibração, tela acesa e animações funcionam no seu celular.
 
 ## Instalar no celular
 Abre o link do GitHub Pages do repositório e usa "Adicionar à tela inicial" (Chrome no Android, botão de compartilhar no Safari do iPhone).

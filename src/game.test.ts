@@ -105,6 +105,27 @@ describe('regras', () => {
     }
   });
 
+  it('tambor menor: com 3 câmaras o tiro sai em no máximo 3 puxadas de cada um', () => {
+    for (let k = 0; k < 2000; k++) {
+      const g = newGame(make('Ana', 'Bia'), 'elimination', undefined, 3);
+      const ana = g.players[0];
+      let n = 0;
+      for (;;) {
+        g.turn = g.alive.indexOf(ana);
+        n++;
+        if (pull(g).kind === 'shot') break;
+      }
+      if (n > 3) throw new Error(`puxou ${n} vezes`);
+    }
+    const g = newGame(make('Ana', 'Bia'), 'single', undefined, 3);
+    expect(remaining(g)).toBe(3);
+  });
+
+  it('recusa tambor inválido', () => {
+    expect(() => newGame(players, 'single', undefined, 1)).toThrow();
+    expect(() => newGame(players, 'single', undefined, 7)).toThrow();
+  });
+
   it('a bala cai em todas as câmaras com frequência parecida', () => {
     const counts = Array(CHAMBERS).fill(0);
     for (let i = 0; i < 3000; i++) {

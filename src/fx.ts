@@ -45,7 +45,7 @@ export function installRipple() {
   document.addEventListener(
     'pointerdown',
     (e) => {
-      const target = (e.target as Element).closest('.btn, .modes button, .x, .rack li');
+      const target = (e.target as Element).closest('.btn, .modes button, .x, .rack li, .seg button');
       if (!target || (target as HTMLButtonElement).disabled) return;
       const r = target.getBoundingClientRect();
       const s = document.createElement('span');

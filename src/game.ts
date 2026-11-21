@@ -1,6 +1,7 @@
 export type Mode = 'elimination' | 'single';
 
-export const CHAMBERS = 6;
+export const CHAMBERS = 6; // padrão
+export const CHAMBER_OPTIONS = [3, 4, 5, 6] as const;
 export const MAX_PLAYERS = 6;
 
 export interface Player {
@@ -20,6 +21,7 @@ export type Outcome =
 
 export interface GameState {
   mode: Mode;
+  chambers: number;
   players: Player[];
   alive: Player[];
   eliminated: Player[];
@@ -41,13 +43,15 @@ export const secureRandom: Rng = () => {
 
 const pick = (rng: Rng, n: number) => Math.floor(rng() * n) % n;
 
-export function newGame(players: Player[], mode: Mode, rng: Rng = secureRandom): GameState {
+export function newGame(players: Player[], mode: Mode, rng: Rng = secureRandom, chambers: number = CHAMBERS): GameState {
   if (players.length < 2) throw new Error('Precisa de pelo menos 2 jogadores');
+  if (!Number.isInteger(chambers) || chambers < 2 || chambers > 6) throw new Error('Tambor precisa ter de 2 a 6 câmaras');
   if (players.length > MAX_PLAYERS) throw new Error(`No máximo ${MAX_PLAYERS} jogadores`);
   const guns: Record<string, Gun> = {};
-  for (const p of players) guns[p.id] = { bullet: pick(rng, CHAMBERS), chamber: 0 };
+  for (const p of players) guns[p.id] = { bullet: pick(rng, chambers), chamber: 0 };
   return {
     mode,
+    chambers,
     players: [...players],
     alive: [...players],
     eliminated: [],
@@ -65,7 +69,7 @@ export function current(state: GameState): Player {
 
 /** Câmaras que ainda podem ter a bala na arma desse jogador. A chance do próximo tiro dele é 1 em N. */
 export function remaining(state: GameState, player: Player = current(state)): number {
-  return CHAMBERS - state.guns[player.id].chamber;
+  return state.chambers - state.guns[player.id].chamber;
 }
 
 export function pull(state: GameState): Outcome {

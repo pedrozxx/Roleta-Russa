@@ -1,6 +1,7 @@
 import './style.css';
-import { current, MAX_PLAYERS, newGame, pull, remaining, type GameState, type Mode, type Player } from './game';
-import { store } from './storage';
+import { CHAMBER_OPTIONS, current, MAX_PLAYERS, newGame, pull, remaining, secureRandom, type GameState, type Mode, type Player } from './game';
+import { DEFAULT_DARES, store } from './storage';
+import { capabilities, isAwake, keepAwake, measureFps } from './device';
 import * as sfx from './audio';
 import { cylinderFront, finishFor, revolverSide } from './revolver';
 import { ask, countUp, dismiss, go, installEmbers, installRipple, popWord, rain, replay, stagger, swapText } from './fx';
@@ -20,6 +21,48 @@ let rotation: Record<string, number> = {};
 let busy = false;
 let justAdded = -1;
 let lastVictim: string | null = null;
+let chambers = store.chambers;
+/** prenda sorteada pra cada pessoa que levou tiro nesta partida */
+let dareOf: Record<string, string> = {};
+
+sfx.setMuted(!store.sound);
+
+const speaker = (on: boolean) => `
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+    <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/>
+    ${
+      on
+        ? '<path class="wave w1" d="M16 9a4 4 0 0 1 0 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path class="wave w2" d="M18.5 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+        : '<path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+    }
+  </svg>`;
+
+const soundBtn = () =>
+  `<button type="button" class="btn ghost small icon sound-toggle" aria-pressed="${store.sound}" aria-label="${store.sound ? 'Desligar som' : 'Ligar som'}">${speaker(store.sound)}</button>`;
+
+/** Liga os botões de som da tela atual. */
+function wireSound() {
+  app.querySelectorAll<HTMLButtonElement>('.sound-toggle').forEach((b) =>
+    b.addEventListener('click', () => {
+      const on = !store.sound;
+      store.setSound(on);
+      sfx.setMuted(!on);
+      if (on) {
+        sfx.unlock();
+        sfx.click();
+      }
+      b.innerHTML = speaker(on);
+      b.setAttribute('aria-pressed', String(on));
+      b.setAttribute('aria-label', on ? 'Desligar som' : 'Ligar som');
+      replay(b, 'picked');
+    }),
+  );
+}
+
+const pickDare = () => {
+  const list = store.dares;
+  return list.length ? list[Math.floor(secureRandom() * list.length)] : '';
+};
 
 /** Título com as letras caindo uma a uma. */
 const letters = (word: string, offset: number) =>
@@ -33,9 +76,13 @@ function renderSetup(opts: { focus?: boolean; enter?: boolean } = {}) {
   const full = names.length >= MAX_PLAYERS;
   app.innerHTML = `
   <main class="screen setup">
+    <div class="topbar">
+      <button type="button" id="test" class="btn ghost small">Testar aparelho</button>
+      ${soundBtn()}
+    </div>
     <header class="brand">
       <div class="brand-gun">${revolverSide()}</div>
-      <h1>${letters('Roleta', 0)}<br/>${letters('Russa', 6)}</h1>
+      <h1 class="${enter ? 'intro' : ''}">${letters('Roleta', 0)}<br/>${letters('Russa', 6)}</h1>
     </header>
 
     <form id="add" class="add" autocomplete="off">
@@ -69,6 +116,22 @@ function renderSetup(opts: { focus?: boolean; enter?: boolean } = {}) {
         <strong>Um tiro decide</strong><small>Acaba no primeiro tiro. Quem levou, perdeu.</small>
       </button>
     </div>
+
+    <section class="settings">
+      <div class="setting">
+        <span><strong>Câmaras por arma</strong><small>Menos câmaras, partida mais rápida.</small></span>
+        <div class="seg" role="radiogroup" aria-label="Câmaras por arma">
+          ${CHAMBER_OPTIONS.map((n) => `<button type="button" role="radio" aria-checked="${n === chambers}" data-ch="${n}">${n}</button>`).join('')}
+        </div>
+      </div>
+      <div class="setting">
+        <span><strong>Prendas</strong><small>${store.dares.length} na lista. Quem leva tiro ganha uma.</small></span>
+        <div class="setting-actions">
+          <button type="button" id="dares" class="btn ghost small">Editar</button>
+          <button type="button" class="switch" role="switch" aria-checked="${store.daresOn}" aria-label="Prendas"><i></i></button>
+        </div>
+      </div>
+    </section>
 
     <button id="start" class="btn primary shine ${canStart && justAdded === 1 ? 'ready' : ''}" ${canStart ? '' : 'disabled'}>Começar</button>
     <button id="board" class="btn ghost">Placar</button>
@@ -123,6 +186,24 @@ function renderSetup(opts: { focus?: boolean; enter?: boolean } = {}) {
     }),
   );
 
+  app.querySelectorAll<HTMLButtonElement>('[data-ch]').forEach((b) =>
+    b.addEventListener('click', () => {
+      chambers = Number(b.dataset.ch);
+      store.setChambers(chambers);
+      app.querySelectorAll('[data-ch]').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+      replay(b, 'picked');
+    }),
+  );
+  const sw = app.querySelector<HTMLButtonElement>('.switch')!;
+  sw.addEventListener('click', () => {
+    const on = !store.daresOn;
+    store.setDaresOn(on);
+    sw.setAttribute('aria-checked', String(on));
+  });
+  app.querySelector('#dares')!.addEventListener('click', () => go(() => renderDares()));
+  app.querySelector('#test')!.addEventListener('click', () => go(renderTest));
+  wireSound();
+
   app.querySelector('#start')!.addEventListener('click', () => {
     sfx.unlock();
     go(startGame);
@@ -136,9 +217,11 @@ const finishOf = (p: Player) => finishFor(Number(p.id));
 
 function startGame() {
   const players: Player[] = names.map((name, i) => ({ id: String(i), name }));
-  game = newGame(players, mode);
+  game = newGame(players, mode, undefined, chambers);
   rotation = {};
   lastVictim = null;
+  dareOf = {};
+  keepAwake(true);
   for (const p of players) rotation[p.id] = 0;
   renderGame(true);
   spinAll();
@@ -149,7 +232,7 @@ function gunMarkup(p: Player) {
   return `
     <div class="gun enter" style="--glow:${f.mid}">
       ${revolverSide(f)}
-      <div class="cyl-wrap">${cylinderFront(f)}</div>
+      <div class="cyl-wrap">${cylinderFront(f, 'front', game!.chambers)}</div>
       <p class="gun-name">Arma de ${esc(p.name)} · ${f.name}</p>
     </div>`;
 }
@@ -160,7 +243,8 @@ function renderGame(enter = false) {
   <main class="screen game">
     <div class="topbar">
       <button id="quit" class="btn ghost small">Sair</button>
-      <span class="mode-tag">${g.mode === 'single' ? 'Um tiro decide' : 'Até sobrar um'}</span>
+      <span class="mode-tag">${g.mode === 'single' ? 'Um tiro decide' : 'Até sobrar um'} · ${g.chambers} câmaras</span>
+      ${soundBtn()}
     </div>
 
     <section class="turn" aria-live="polite">
@@ -177,7 +261,7 @@ function renderGame(enter = false) {
       ${g.players
         .map(
           (p) => `<li data-id="${p.id}" class="${p.id === lastVictim ? 'knocked' : ''}">
-            <div class="mini">${cylinderFront(finishOf(p), 'front mini-cyl')}</div>
+            <div class="mini">${cylinderFront(finishOf(p), 'front mini-cyl', g.chambers)}</div>
             <span class="rack-name">${esc(p.name)}</span>
             <span class="rack-odds">1 em ${remaining(g, p)}</span>
           </li>`,
@@ -196,9 +280,11 @@ function renderGame(enter = false) {
   for (const p of g.players) setCylinder(p, false);
   if (!enter) updateTurnInfo('Vez de');
   app.querySelector('#fire')!.addEventListener('click', onFire);
+  wireSound();
   app.querySelector('#quit')!.addEventListener('click', async () => {
     if (await ask('Sair da partida? Ela não vai contar no placar.', 'Sair')) {
       game = null;
+      keepAwake(false);
       go(() => renderSetup());
     }
   });
@@ -246,7 +332,7 @@ function spinAll() {
   busy = true;
   const g = game!;
   for (const p of g.players) {
-    rotation[p.id] += 360 * 3 + 60 * Math.floor(Math.random() * 6);
+    rotation[p.id] += 360 * 3 + (360 / g.chambers) * Math.floor(Math.random() * g.chambers);
   }
   requestAnimationFrame(() => {
     for (const p of g.players) setCylinder(p, true, SPIN_MS);
@@ -288,7 +374,7 @@ function onFire() {
     if (out.kind === 'empty') {
       sfx.click();
       sfx.vibrate(30);
-      rotation[shooter.id] += 60;
+      rotation[shooter.id] += 360 / g.chambers;
       setCylinder(shooter, true, 250, true);
       replay(gun.querySelector('.cyl-wrap'), 'jolt');
       popWord(gun, 'CLICK');
@@ -320,6 +406,8 @@ function showShot(victim: Player, next: Player | null) {
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
   const more = !g.over;
+  const dare = store.daresOn ? pickDare() : '';
+  if (dare) dareOf[victim.id] = dare;
   overlay.innerHTML = `
     <div class="card slam">
       <svg class="hole" viewBox="0 0 100 100" aria-hidden="true">
@@ -333,10 +421,12 @@ function showShot(victim: Player, next: Player | null) {
       <p class="bang">${[...'BANG!'].map((c, i) => `<span style="--l:${i}">${c}</span>`).join('')}</p>
       <h2>${esc(victim.name)}</h2>
       <p>${g.mode === 'single' ? 'levou o tiro e perdeu.' : 'levou o tiro e está fora.'}</p>
+      ${dare ? `<div class="dare"><span class="dare-label">Prenda</span><strong class="dare-text">${esc(dare)}</strong></div>` : ''}
       ${more ? `<p class="small">Sobraram ${g.alive.length}. As outras armas continuam como estavam.</p>` : ''}
       <button id="go" class="btn primary shine">${more ? `Próxima: ${esc(next!.name)}` : 'Ver resultado'}</button>
     </div>`;
   document.body.appendChild(overlay);
+  if (dare) shuffleDare(overlay.querySelector('.dare-text')!, dare);
   overlay.querySelector('#go')!.addEventListener('click', async () => {
     await dismiss(overlay);
     if (more) {
@@ -351,8 +441,31 @@ function showShot(victim: Player, next: Player | null) {
   });
 }
 
+/** Embaralha as prendas na tela antes de parar na sorteada, tipo caça-níquel. */
+function shuffleDare(el: HTMLElement, final: string) {
+  const list = store.dares;
+  if (list.length < 2) return;
+  el.classList.add('rolling');
+  let i = 0;
+  const steps = 14;
+  const tick = () => {
+    if (i >= steps) {
+      el.textContent = final;
+      el.classList.remove('rolling');
+      replay(el, 'landed');
+      sfx.click();
+      return;
+    }
+    el.textContent = list[(i + Math.floor(secureRandom() * list.length)) % list.length];
+    i++;
+    setTimeout(tick, 45 + i * i * 2.2);
+  };
+  setTimeout(tick, 500);
+}
+
 function finish() {
   const g = game!;
+  keepAwake(false);
   store.record({
     players: g.players.map((p) => p.name),
     shot: g.eliminated.map((p) => p.name),
@@ -372,12 +485,16 @@ function renderResult(g: GameState) {
          <p class="small">Primeiro a cair: <strong>${esc(g.loser!.name)}</strong></p>`;
   const order =
     g.mode === 'elimination'
-      ? `<ol class="order">${g.eliminated.map((p) => `<li>${esc(p.name)}</li>`).join('')}</ol>`
-      : '';
+      ? `<ol class="order">${g.eliminated
+          .map((p) => `<li>${esc(p.name)}${dareOf[p.id] ? ` <small class="dare-tag">${esc(dareOf[p.id])}</small>` : ''}</li>`)
+          .join('')}</ol>`
+      : dareOf[g.loser!.id]
+        ? `<div class="dare big"><span class="dare-label">Prenda</span><strong>${esc(dareOf[g.loser!.id])}</strong></div>`
+        : '';
   app.innerHTML = `
   <main class="screen result">
     <section class="turn">${headline}</section>
-    ${order ? `<p class="label">Ordem dos tiros</p>${order}` : ''}
+    ${order ? (g.mode === 'elimination' ? `<p class="label">Ordem dos tiros</p>${order}` : order) : ''}
     <button id="again" class="btn primary shine">Jogar de novo</button>
     <button id="edit" class="btn ghost">Trocar jogadores</button>
     <button id="board" class="btn ghost">Placar</button>
@@ -392,6 +509,149 @@ function renderResult(g: GameState) {
   });
   app.querySelector('#edit')!.addEventListener('click', () => go(() => renderSetup()));
   app.querySelector('#board')!.addEventListener('click', () => go(renderBoard));
+}
+
+// ---------- Prendas ----------
+
+function renderDares(focus = false, enter = true) {
+  const list = store.dares;
+  app.innerHTML = `
+  <main class="screen dares-screen">
+    <div class="topbar">
+      <button id="back" class="btn ghost small">Voltar</button>
+      <span class="mode-tag">Prendas</span>
+    </div>
+    <p class="small">Quem leva o tiro ganha uma destas, sorteada na hora.</p>
+    <form id="add-dare" class="add" autocomplete="off">
+      <input id="dare" maxlength="60" placeholder="Nova prenda" enterkeyhint="done" />
+      <button type="submit" class="btn small">Adicionar</button>
+    </form>
+    <ul class="dare-list">
+      ${list.map((d, i) => `<li><span>${esc(d)}</span><button class="x" data-i="${i}" aria-label="Remover prenda">×</button></li>`).join('')}
+    </ul>
+    ${list.length ? '' : '<p class="hint empty">Lista vazia. Sem prenda, só o tiro.</p>'}
+    <button id="restore" class="btn ghost">Voltar pra lista inicial</button>
+  </main>`;
+  if (enter) {
+    stagger(app.querySelector('.screen'));
+    stagger(app.querySelector('.dare-list'), 35);
+  }
+  const input = app.querySelector<HTMLInputElement>('#dare')!;
+  if (focus) input.focus();
+  app.querySelector('#add-dare')!.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const d = input.value.trim().replace(/\s+/g, ' ');
+    if (!d || list.some((x) => x.toLowerCase() === d.toLowerCase())) {
+      replay(input, 'shake');
+      return;
+    }
+    store.setDares([d, ...list]);
+    renderDares(true, false);
+    app.querySelector('.dare-list li')?.classList.add('pop');
+  });
+  app.querySelectorAll<HTMLButtonElement>('.dare-list .x').forEach((b) =>
+    b.addEventListener('click', () => {
+      b.closest('li')!.classList.add('gone');
+      setTimeout(() => {
+        store.setDares(list.filter((_, i) => i !== Number(b.dataset.i)));
+        renderDares(false, false);
+      }, 220);
+    }),
+  );
+  app.querySelector('#restore')!.addEventListener('click', async () => {
+    if (await ask('Trocar a sua lista pela lista inicial?', 'Trocar')) {
+      store.setDares([...DEFAULT_DARES]);
+      renderDares();
+    }
+  });
+  app.querySelector('#back')!.addEventListener('click', () => go(() => renderSetup()));
+}
+
+// ---------- Testar aparelho ----------
+
+function renderTest() {
+  const c = capabilities();
+  const row = (ok: boolean, label: string, note: string) =>
+    `<li><span class="badge ${ok ? 'yes' : 'no'}">${ok ? 'Sim' : 'Não'}</span><span><strong>${label}</strong><small>${note}</small></span></li>`;
+  app.innerHTML = `
+  <main class="screen test">
+    <div class="topbar">
+      <button id="back" class="btn ghost small">Voltar</button>
+      <span class="mode-tag">Testar aparelho</span>
+    </div>
+    <p class="small">Aperta cada botão e confere se aconteceu de verdade. O que o celular diz suportar está logo abaixo.</p>
+
+    <div class="test-grid">
+      <button class="btn" data-t="spin">Som do tambor</button>
+      <button class="btn" data-t="click">Som do clique</button>
+      <button class="btn" data-t="bang">Som do tiro</button>
+      <button class="btn" data-t="vibe">Vibrar</button>
+      <button class="btn" data-t="fps">Medir animação</button>
+      <button class="btn" data-t="awake">Tela acesa</button>
+    </div>
+    <p class="result-line" id="out" aria-live="polite">Nenhum teste rodado ainda.</p>
+    <div class="test-cyl">${cylinderFront(finishFor(1), 'front', chambers)}</div>
+
+    <ul class="caps">
+      ${row(c.audio, 'Som', store.sound ? 'Ligado no app. Se não tocar, confere o volume e o modo silencioso.' : 'Está desligado no app, no botão do alto-falante.')}
+      ${row(c.vibration, 'Vibração', c.ios ? 'iPhone não deixa site vibrar. Não tem como contornar.' : 'Se não vibrar, confere se a vibração do sistema está ligada.')}
+      ${row(c.wakeLock, 'Manter tela acesa', c.wakeLock ? 'O navegador tem o recurso. Aperta "Tela acesa" ali em cima pra confirmar que ele deixa.' : 'Este navegador não deixa. A tela pode apagar no meio do jogo.')}
+      ${row(c.viewTransitions, 'Transição entre telas', c.viewTransitions ? 'Ativa.' : 'Sem transição suave entre telas. O resto das animações funciona.')}
+      ${row(c.installed, 'Instalado na tela inicial', c.installed ? 'Abrindo como app.' : 'Abrindo pelo navegador. Instalar deixa em tela cheia.')}
+      ${row(!c.reducedMotion, 'Animações completas', c.reducedMotion ? '"Reduzir movimento" está ligado no celular. Os efeitos em loop ficam desligados.' : 'Todas ligadas.')}
+    </ul>
+  </main>`;
+  stagger(app.querySelector('.screen'));
+  stagger(app.querySelector('.caps'), 50);
+  const out = app.querySelector<HTMLElement>('#out')!;
+  const say = (t: string) => swapText(out, t);
+  app.querySelectorAll<HTMLButtonElement>('[data-t]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      sfx.unlock();
+      const t = b.dataset.t;
+      if (t === 'spin' || t === 'click' || t === 'bang') {
+        if (!store.sound) return say('O som está desligado no app. Liga no alto-falante da tela inicial.');
+        // o iPhone às vezes demora um instante pra liberar o áudio
+        setTimeout(() => (t === 'spin' ? sfx.spin(1.2) : t === 'click' ? sfx.click() : sfx.bang()), 60);
+        if (t === 'spin') {
+          const cyl = app.querySelector<SVGGElement>('.test-cyl .cyl')!;
+          cyl.style.transition = 'transform 1.2s cubic-bezier(.15,.7,.2,1)';
+          cyl.style.transform = `rotate(${(Number(cyl.dataset.r) || 0) + 1080}deg)`;
+          cyl.dataset.r = String((Number(cyl.dataset.r) || 0) + 1080);
+        }
+        return say('Tocou? Se não ouviu nada, confere volume e modo silencioso.');
+      }
+      if (t === 'vibe') {
+        sfx.vibrate([200, 100, 200]);
+        return say(c.vibration ? 'Vibrou? Duas vibrações curtas.' : 'Este aparelho não vibra pelo navegador.');
+      }
+      if (t === 'fps') {
+        say('Medindo...');
+        const cyl = app.querySelector<SVGGElement>('.test-cyl .cyl')!;
+        cyl.style.transition = 'transform 2s linear';
+        cyl.style.transform = `rotate(${(Number(cyl.dataset.r) || 0) + 720}deg)`;
+        cyl.dataset.r = String((Number(cyl.dataset.r) || 0) + 720);
+        const fps = await measureFps(2000);
+        return say(
+          fps >= 50
+            ? `${fps} quadros por segundo. Animações lisas.`
+            : fps >= 30
+              ? `${fps} quadros por segundo. Dá pra jogar, mas pode engasgar.`
+              : `${fps} quadros por segundo. Este aparelho sofre com as animações.`,
+        );
+      }
+      if (t === 'awake') {
+        keepAwake(true);
+        setTimeout(() => {
+          say(isAwake() ? 'Tela acesa ligada. Ela desliga quando você sair desta tela.' : 'O navegador não deixou manter a tela acesa.');
+        }, 300);
+      }
+    }),
+  );
+  app.querySelector('#back')!.addEventListener('click', () => {
+    keepAwake(false);
+    go(() => renderSetup());
+  });
 }
 
 // ---------- Placar ----------

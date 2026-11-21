@@ -28,3 +28,8 @@ Jogo de festa num celular só, passando de mão em mão. Serve pra diversão num
 ## Fora do escopo
 Multiplayer, contas, ranking online, publicação em loja.
 - Animações em todas as telas (fundo com brasas, transição entre telas, entrada em cascata, toque com onda, clarão e fumaça no tiro, tensão vermelha quando a chance fica alta, confete ou cápsulas no resultado, placar contando). Nenhuma animação bloqueia o toque além do que já bloqueava. Quem liga "reduzir movimento" no celular perde só os loops.
+- Botão de som liga/desliga em todas as telas principais, salvo no celular.
+- Tela acesa (Wake Lock) só durante a partida, retomada quando o app volta do fundo.
+- Câmaras por arma escolhidas na tela inicial: 3, 4, 5 ou 6 (padrão 6). O tambor é desenhado com o número escolhido.
+- Prendas: lista editável com 8 sugestões iniciais, ligável e desligável. Cada pessoa que leva tiro ganha uma, sorteada com efeito de caça-níquel. Aparecem no card do BANG e no resultado.
+- Tela "Testar aparelho": som, vibração, medição de quadros por segundo e tela acesa, mais o que o aparelho diz suportar. Serve pra testar no celular de verdade, que esta sessão não consegue fazer.

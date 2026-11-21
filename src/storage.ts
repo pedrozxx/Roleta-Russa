@@ -6,14 +6,37 @@ export interface Stats {
   games: number;
 }
 
+export const DEFAULT_DARES = [
+  'Paga a próxima rodada',
+  'Lava a louça',
+  'Escolhe a próxima música',
+  'Imita alguém da mesa até a próxima rodada',
+  'Conta um mico',
+  'Faz 10 flexões',
+  'Busca a próxima bebida pra todo mundo',
+  'Fica sem celular por 10 minutos',
+];
+
 interface Saved {
   names: string[];
   mode: Mode;
+  sound: boolean;
+  chambers: number;
+  dares: string[];
+  daresOn: boolean;
   stats: Record<string, Stats & { name: string }>;
 }
 
 const KEY = 'roleta-russa:v1';
-const empty = (): Saved => ({ names: [], mode: 'elimination', stats: {} });
+const empty = (): Saved => ({
+  names: [],
+  mode: 'elimination',
+  sound: true,
+  chambers: 6,
+  dares: [...DEFAULT_DARES],
+  daresOn: true,
+  stats: {},
+});
 
 function load(): Saved {
   try {
@@ -41,6 +64,34 @@ export const store = {
   },
   get mode() {
     return data.mode;
+  },
+  get sound() {
+    return data.sound;
+  },
+  get chambers() {
+    return data.chambers;
+  },
+  get dares() {
+    return data.dares;
+  },
+  get daresOn() {
+    return data.daresOn;
+  },
+  setSound(on: boolean) {
+    data.sound = on;
+    save(data);
+  },
+  setChambers(n: number) {
+    data.chambers = n;
+    save(data);
+  },
+  setDares(list: string[]) {
+    data.dares = list;
+    save(data);
+  },
+  setDaresOn(on: boolean) {
+    data.daresOn = on;
+    save(data);
   },
   setNames(names: string[]) {
     data.names = names;
